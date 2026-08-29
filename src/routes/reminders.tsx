@@ -93,10 +93,14 @@ function RemindersPage() {
       actions={
         <Button
           onClick={() => {
-            if (!items.length) return toast.error("Nothing to send in this list.");
+            if (!items.length) {
+              toast.error("Nothing to send in this list.");
+              return;
+            }
             sendOne(items[0]!);
             toast.success(`${items.length} WhatsApp reminders queued`);
           }}
+
         >
           <Send className="size-4" /> Send all in this list
         </Button>
