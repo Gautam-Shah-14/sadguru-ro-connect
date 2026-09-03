@@ -11,7 +11,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { formatIN, serviceDates, SERVICE_LABELS, type Customer, type ServiceKey } from "@/lib/store";
+import {
+  formatIN,
+  serviceDates,
+  SERVICE_LABELS,
+  type Customer,
+  type ServiceKey,
+} from "@/lib/store";
 
 export function CustomerDialog({
   open,
@@ -31,18 +37,27 @@ export function CustomerDialog({
   if (!draft) return null;
   const dates = serviceDates(draft);
   const set = (patch: Partial<Customer>) => setDraft({ ...draft, ...patch });
+  const isExisting = !!value?.createdAt;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{value?.name ? "Edit customer" : "New customer entry"}</DialogTitle>
+          <DialogTitle>{isExisting ? "Edit customer" : "New customer entry"}</DialogTitle>
           <DialogDescription>
             Service dates are calculated automatically at 4, 8 and 12 months from the selling date.
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid grid-cols-2 gap-4">
+          <Field label="Customer ID">
+            <Input
+              value={draft.id}
+              disabled={isExisting}
+              placeholder="e.g. SG-001 · leave blank to auto-generate"
+              onChange={(e) => set({ id: e.target.value.trim() })}
+            />
+          </Field>
           <Field label="Customer name">
             <Input value={draft.name} onChange={(e) => set({ name: e.target.value })} />
           </Field>

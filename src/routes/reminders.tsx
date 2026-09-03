@@ -14,33 +14,17 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  buildDueList,
   fillTemplate,
   formatIN,
   SERVICE_LABELS,
   useCustomers,
+  useDueList,
   useSettings,
   type DueItem,
 } from "@/lib/store";
+import { api } from "@/lib/api";
 
-export const Route = createFileRoute("/reminders")({
-  head: () => ({
-    meta: [
-      { title: "Service Reminders | Sadguru Enterprise RO Manager" },
-      {
-        name: "description",
-        content:
-          "See every RO service due at 4, 8 and 12 months and send WhatsApp reminders to customers before the visit date.",
-      },
-      { property: "og:title", content: "Service Reminders | Sadguru Enterprise" },
-      {
-        property: "og:description",
-        content: "Track due and overdue RO services and send WhatsApp reminders.",
-      },
-    ],
-  }),
-  component: RemindersPage,
-});
+export const Route = createFileRoute("/reminders")({ component: RemindersPage });
 
 const filters = ["Due soon", "Overdue", "Upcoming", "Completed"] as const;
 const statusOf: Record<(typeof filters)[number], DueItem["status"]> = {
@@ -51,56 +35,57 @@ const statusOf: Record<(typeof filters)[number], DueItem["status"]> = {
 };
 
 function RemindersPage() {
-  const { customers, persist } = useCustomers();
+  const { dueList } = useDueList();
+  const { setServiceDone } = useCustomers();
   const { settings } = useSettings();
   const [active, setActive] = useState<(typeof filters)[number]>("Due soon");
 
-  const items = buildDueList(customers, settings.reminderDays).filter(
-    (i) => i.status === statusOf[active],
-  );
+  const reminderDays = settings?.reminderDays ?? 15;
+  const items = dueList.filter((i) => i.status === statusOf[active]);
 
   function message(item: DueItem) {
-    return fillTemplate(settings.waTemplate, {
+    return fillTemplate(settings?.waTemplate ?? "", {
       name: item.customer.name,
       product: item.customer.product || "RO purifier",
       service: SERVICE_LABELS[item.key],
       date: formatIN(item.date),
-      shop: settings.shopName,
+      shop: settings?.shopName ?? "Sadguru Enterprise",
     });
   }
 
-  function sendOne(item: DueItem) {
-    if (!settings.waPhoneNumberId || !settings.waToken) {
-      toast.error("Add your WhatsApp Cloud API details in Settings first.");
-      return;
-    }
-    toast.success(`Reminder queued for ${item.customer.name} (${item.customer.phone})`);
+  async function sendOne(item: DueItem) {
+    const res = await api.whatsapp.sendReminder({ customerId: item.customer.id, key: item.key });
+    if (res.status === "sent") toast.success(`Sent to ${item.customer.name}`);
+    else if (res.status === "dry-run") toast.info(`Dry-run — logged for ${item.customer.name}`);
+    else toast.error(`${item.customer.name}: ${res.error ?? "send failed"}`);
   }
 
-  function markDone(item: DueItem) {
-    persist(
-      customers.map((c) =>
-        c.id === item.customer.id ? { ...c, done: { ...c.done, [item.key]: true } } : c,
-      ),
-    );
+  async function markDone(item: DueItem) {
+    await setServiceDone(item.customer.id, item.key, true);
     toast.success("Service marked completed");
   }
 
   return (
     <AppShell
       title="Service Reminders"
-      subtitle={`Alerting ${settings.reminderDays} days before each due date`}
+      subtitle={`Alerting ${reminderDays} days before each due date`}
       actions={
         <Button
-          onClick={() => {
+          onClick={async () => {
             if (!items.length) {
               toast.error("Nothing to send in this list.");
               return;
             }
-            sendOne(items[0]!);
-            toast.success(`${items.length} WhatsApp reminders queued`);
+            const res = await api.whatsapp.sendReminders(
+              items.map((i) => ({ customerId: i.customer.id, key: i.key })),
+            );
+            const parts = [
+              res.sent && `${res.sent} sent`,
+              res.dryRun && `${res.dryRun} logged (dry-run)`,
+              res.failed && `${res.failed} failed`,
+            ].filter(Boolean);
+            toast[res.failed ? "warning" : "success"](parts.join(" · ") || "Nothing to send");
           }}
-
         >
           <Send className="size-4" /> Send all in this list
         </Button>
