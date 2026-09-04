@@ -1,11 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useRef, useState } from "react";
-import { Download, FileSpreadsheet, Plus, Search, Trash2, Pencil } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Download, FileDown, FileSpreadsheet, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/AppShell";
 import { CustomerDialog } from "@/components/CustomerDialog";
+import { ImportDialog } from "@/components/ImportDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { api } from "@/lib/api";
+import type { ExcelInspection } from "../../shared/types";
 import {
   Table,
   TableBody,
@@ -15,60 +18,63 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { emptyCustomer, formatIN, serviceDates, useCustomers, type Customer } from "@/lib/store";
-import { exportCustomers, parseWorkbook } from "@/lib/excel";
 
-export const Route = createFileRoute("/customers")({
-  head: () => ({
-    meta: [
-      { title: "Customer Records | Sadguru Enterprise RO Manager" },
-      {
-        name: "description",
-        content:
-          "Import Excel customer sheets, add new RO purifier sales and track every customer's servicing schedule.",
-      },
-      { property: "og:title", content: "Customer Records | Sadguru Enterprise" },
-      {
-        property: "og:description",
-        content: "Import Excel sheets and manage RO customers with automatic service dates.",
-      },
-    ],
-  }),
-  component: CustomersPage,
-});
+export const Route = createFileRoute("/customers")({ component: CustomersPage });
+
+/** True for shop-assigned IDs; false for the app's internal UUIDs. */
+function isHumanId(id: string): boolean {
+  return !!id && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+}
 
 function CustomersPage() {
-  const { customers, persist } = useCustomers();
+  const { customers, saveCustomer, removeCustomer, refresh } = useCustomers();
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<Customer | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [inspection, setInspection] = useState<ExcelInspection | null>(null);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return customers;
     return customers.filter((c) =>
-      [c.name, c.phone, c.city, c.product, c.serialNo].join(" ").toLowerCase().includes(q),
+      [c.id, c.name, c.phone, c.city, c.product, c.serialNo].join(" ").toLowerCase().includes(q),
     );
   }, [customers, query]);
 
-  async function handleFile(file: File) {
+  async function importExcel() {
+    setBusy(true);
     try {
-      const rows = await parseWorkbook(file);
-      if (!rows.length) {
-        toast.error("No usable rows found in that sheet.");
+      const res = await api.customers.inspectExcel();
+      if (res.canceled) return;
+      if (!res.sheets.length || !res.sheets[0]?.columns.length) {
+        toast.error("That file has no readable rows.");
         return;
       }
-      persist([...customers, ...rows]);
-      toast.success(`Imported ${rows.length} customers from ${file.name}`);
-    } catch {
-      toast.error("Could not read that file. Use .xlsx or .csv.");
+      setInspection(res);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not read that file.");
+    } finally {
+      setBusy(false);
     }
   }
 
-  function save(customer: Customer) {
-    const exists = customers.some((c) => c.id === customer.id);
-    persist(exists ? customers.map((c) => (c.id === customer.id ? customer : c)) : [customer, ...customers]);
-    setEditing(null);
-    toast.success("Customer saved");
+  async function exportExcel() {
+    try {
+      const res = await window.api!.customers.exportExcel();
+      if (res.saved) toast.success("Exported to " + res.path);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Export failed.");
+    }
+  }
+
+  async function save(customer: Customer) {
+    try {
+      await saveCustomer(customer);
+      setEditing(null);
+      toast.success("Customer saved");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save customer");
+    }
   }
 
   return (
@@ -77,25 +83,20 @@ function CustomersPage() {
       subtitle={`${customers.length} customers on file`}
       actions={
         <>
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".xlsx,.xls,.csv"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) void handleFile(f);
-              e.target.value = "";
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={async () => {
+              const r = await api.customers.sampleExcel();
+              if (r.saved) toast.success("Sample sheet saved to " + r.path);
             }}
-          />
-          <Button variant="outline" onClick={() => fileRef.current?.click()}>
+          >
+            <FileDown className="size-4" /> Sample sheet
+          </Button>
+          <Button variant="outline" onClick={importExcel} disabled={busy}>
             <FileSpreadsheet className="size-4" /> Import Excel
           </Button>
-          <Button
-            variant="outline"
-            onClick={() => exportCustomers(customers)}
-            disabled={!customers.length}
-          >
+          <Button variant="outline" onClick={exportExcel} disabled={!customers.length}>
             <Download className="size-4" /> Export
           </Button>
           <Button onClick={() => setEditing(emptyCustomer())}>
@@ -110,7 +111,7 @@ function CustomersPage() {
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by name, phone, city, model or serial no."
+            placeholder="Search by ID, name, phone, city, model or serial no."
             className="h-8 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
           />
         </div>
@@ -118,6 +119,7 @@ function CustomersPage() {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead>Customer ID</TableHead>
               <TableHead>Customer</TableHead>
               <TableHead>Phone</TableHead>
               <TableHead>Product</TableHead>
@@ -133,6 +135,9 @@ function CustomersPage() {
               const d = serviceDates(c);
               return (
                 <TableRow key={c.id}>
+                  <TableCell className="font-mono text-xs">
+                    {isHumanId(c.id) ? c.id : <span className="text-muted-foreground">—</span>}
+                  </TableCell>
                   <TableCell>
                     <span className="font-medium">{c.name || "—"}</span>
                     <span className="block text-xs text-muted-foreground">{c.city || "—"}</span>
@@ -159,8 +164,8 @@ function CustomersPage() {
                     <Button
                       size="icon"
                       variant="ghost"
-                      onClick={() => {
-                        persist(customers.filter((x) => x.id !== c.id));
+                      onClick={async () => {
+                        await removeCustomer(c.id);
                         toast.success("Customer removed");
                       }}
                     >
@@ -172,7 +177,7 @@ function CustomersPage() {
             })}
             {!filtered.length && (
               <TableRow>
-                <TableCell colSpan={8} className="py-14 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={9} className="py-14 text-center text-sm text-muted-foreground">
                   No customers yet. Import your existing Excel sheet or add an entry manually.
                 </TableCell>
               </TableRow>
@@ -186,6 +191,11 @@ function CustomersPage() {
         value={editing}
         onOpenChange={(o) => !o && setEditing(null)}
         onSave={save}
+      />
+      <ImportDialog
+        inspection={inspection}
+        onClose={() => setInspection(null)}
+        onImported={refresh}
       />
     </AppShell>
   );

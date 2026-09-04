@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ActivityRouteImport } from './routes/activity'
 import { Route as CustomersRouteImport } from './routes/customers'
 import { Route as FestivalsRouteImport } from './routes/festivals'
 import { Route as RemindersRouteImport } from './routes/reminders'
@@ -18,6 +19,11 @@ import { Route as SettingsRouteImport } from './routes/settings'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ActivityRoute = ActivityRouteImport.update({
+  id: '/activity',
+  path: '/activity',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CustomersRoute = CustomersRouteImport.update({
@@ -43,6 +49,7 @@ const SettingsRoute = SettingsRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/activity': typeof ActivityRoute
   '/customers': typeof CustomersRoute
   '/festivals': typeof FestivalsRoute
   '/reminders': typeof RemindersRoute
@@ -50,6 +57,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/activity': typeof ActivityRoute
   '/customers': typeof CustomersRoute
   '/festivals': typeof FestivalsRoute
   '/reminders': typeof RemindersRoute
@@ -58,6 +66,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/activity': typeof ActivityRoute
   '/customers': typeof CustomersRoute
   '/festivals': typeof FestivalsRoute
   '/reminders': typeof RemindersRoute
@@ -65,15 +74,24 @@ export interface FileRoutesById {
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/customers' | '/festivals' | '/reminders' | '/settings'
+  fullPaths:
+    '/' | '/activity' | '/customers' | '/festivals' | '/reminders' | '/settings'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/customers' | '/festivals' | '/reminders' | '/settings'
+  to:
+    '/' | '/activity' | '/customers' | '/festivals' | '/reminders' | '/settings'
   id:
-    '__root__' | '/' | '/customers' | '/festivals' | '/reminders' | '/settings'
+    | '__root__'
+    | '/'
+    | '/activity'
+    | '/customers'
+    | '/festivals'
+    | '/reminders'
+    | '/settings'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ActivityRoute: typeof ActivityRoute
   CustomersRoute: typeof CustomersRoute
   FestivalsRoute: typeof FestivalsRoute
   RemindersRoute: typeof RemindersRoute
@@ -87,6 +105,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/activity': {
+      id: '/activity'
+      path: '/activity'
+      fullPath: '/activity'
+      preLoaderRoute: typeof ActivityRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/customers': {
@@ -122,6 +147,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ActivityRoute: ActivityRoute,
   CustomersRoute: CustomersRoute,
   FestivalsRoute: FestivalsRoute,
   RemindersRoute: RemindersRoute,
@@ -130,13 +156,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

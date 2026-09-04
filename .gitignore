@@ -16,6 +16,13 @@ dist-ssr
 .nitro
 *.local
 
+# Electron build artifacts
+out
+release
+*.db
+*.db-shm
+*.db-wal
+
 # Wrangler / Cloudflare
 .wrangler/
 .dev.vars
